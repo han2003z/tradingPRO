@@ -428,17 +428,16 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         vertical_spacing=0.02,
     )
 
-    # 【核心修复】：统一处理数据，剥离时区并转为字符串
-    # 这能彻底绕过 Plotly 在云端的时间轴渲染崩溃，同时把 X 轴变成类别轴，自动抹平周末和假期的空白断层！
+    # 【1】过滤脏数据，拷贝一份用于绘图
     plot_df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
     
-    if plot_df.index.tzinfo is not None:
+    # 【2】安全剥离时区（防止云端报错），保持真正的 Datetime 时间轴特性
+    if hasattr(plot_df.index, 'tz') and plot_df.index.tz is not None:
         plot_df.index = plot_df.index.tz_localize(None)
-    str_index = plot_df.index.strftime('%Y-%m-%d')
 
     # K线
     fig.add_trace(go.Candlestick(
-        x=str_index, open=plot_df["Open"], high=plot_df["High"],
+        x=plot_df.index, open=plot_df["Open"], high=plot_df["High"],
         low=plot_df["Low"], close=plot_df["Close"],
         increasing=dict(line=dict(color="#3fb950", width=1), fillcolor="#1f3a2d"),
         decreasing=dict(line=dict(color="#f85149", width=1), fillcolor="#3d1f1f"),
@@ -449,23 +448,24 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
     for col_name, color, width in [("MA5", "#58a6ff", 1), ("MA20", "#d29922", 1.2), ("MA60", "#bc8cff", 1)]:
         if col_name in plot_df.columns:
             fig.add_trace(go.Scatter(
-                x=str_index, y=plot_df[col_name], name=col_name,
+                x=plot_df.index, y=plot_df[col_name], name=col_name,
                 line=dict(color=color, width=width), mode="lines", opacity=0.8,
             ), row=1, col=1)
 
-    # 买入卖出标记（由于使用了字符串索引，需要将下标映射过去）
-    buy_idx = np.where(plot_df["买入信号"] == 1)[0] if "买入信号" in plot_df.columns else []
-    sell_idx = np.where(plot_df["卖出信号"] == 1)[0] if "卖出信号" in plot_df.columns else []
+    # 【3】使用绝对稳定、兼容所有 Pandas 版本的布尔遮罩来筛选买卖点
+    buy_df = plot_df[plot_df.get("买入信号", 0) == 1]
+    sell_df = plot_df[plot_df.get("卖出信号", 0) == 1]
 
-    if len(buy_idx):
+    if not buy_df.empty:
         fig.add_trace(go.Scatter(
-            x=str_index[buy_idx], y=plot_df["Low"].iloc[buy_idx] * 0.985,
+            x=buy_df.index, y=buy_df["Low"] * 0.985,
             mode="markers", marker=dict(symbol="triangle-up", size=10, color="#3fb950"),
             name="买入", showlegend=True,
         ), row=1, col=1)
-    if len(sell_idx):
+        
+    if not sell_df.empty:
         fig.add_trace(go.Scatter(
-            x=str_index[sell_idx], y=plot_df["High"].iloc[sell_idx] * 1.015,
+            x=sell_df.index, y=sell_df["High"] * 1.015,
             mode="markers", marker=dict(symbol="triangle-down", size=10, color="#f85149"),
             name="卖出", showlegend=True,
         ), row=1, col=1)
@@ -474,7 +474,7 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
     vol_colors = ["#1f3a2d" if c >= o else "#3d1f1f"
                   for c, o in zip(plot_df["Close"], plot_df["Open"])]
     fig.add_trace(go.Bar(
-        x=str_index, y=plot_df["Volume"],
+        x=plot_df.index, y=plot_df["Volume"],
         marker_color=vol_colors, name="成交量", showlegend=False,
         opacity=0.85,
     ), row=2, col=1)
@@ -482,7 +482,7 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
     # 综合评分曲线
     if "综合评分" in plot_df.columns:
         fig.add_trace(go.Scatter(
-            x=str_index, y=plot_df["综合评分"],
+            x=plot_df.index, y=plot_df["综合评分"],
             line=dict(color="#58a6ff", width=1.2), name="综合评分",
             fill="tozeroy", fillcolor="rgba(88,166,255,0.06)",
         ), row=3, col=1)
@@ -493,7 +493,6 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         **PLOTLY_THEME,
         height=520,
         xaxis_rangeslider_visible=False,
-        xaxis_type="category",  # 强行指定为分类轴，防止云端解析错乱
         legend=dict(
             orientation="h", yanchor="bottom", y=1.01,
             xanchor="left", x=0,
@@ -506,9 +505,12 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         ),
     )
     
-    # 动态优化 X 轴标签显示间隔，防止日期密密麻麻挤在一起
-    tick_step = max(1, len(str_index) // 8)
-    fig.update_xaxes(tickmode='array', tickvals=str_index[::tick_step], ticktext=str_index[::tick_step])
+    # 【4】Plotly 原生杀手锏：自动隐藏周末的时间轴空缺！
+    fig.update_xaxes(
+        rangebreaks=[
+            dict(bounds=["sat", "mon"])  # 隐藏从周六到周一的区域
+        ]
+    )
 
     fig.update_yaxes(title_text="价格", row=1, col=1, title_font=dict(size=9))
     fig.update_yaxes(title_text="量", row=2, col=1, title_font=dict(size=9))
