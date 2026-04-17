@@ -428,10 +428,14 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         vertical_spacing=0.02,
     )
 
-    # 【1】过滤脏数据，拷贝一份用于绘图
+    # 🛡️ 【终极修复组合拳】
+    # 1. 过滤空值
     plot_df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
     
-    # 【2】安全剥离时区（防止云端报错），保持真正的 Datetime 时间轴特性
+    # 2. 剔除云端 yfinance 经常抽风返回的“重复日期”，强制时间轴排序（解决满屏色块的杀手锏！）
+    plot_df = plot_df[~plot_df.index.duplicated(keep='last')].sort_index()
+    
+    # 3. 剥离时区，防止云端 Linux 和本地 Windows 时区解析冲突
     if hasattr(plot_df.index, 'tz') and plot_df.index.tz is not None:
         plot_df.index = plot_df.index.tz_localize(None)
 
@@ -452,7 +456,7 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
                 line=dict(color=color, width=width), mode="lines", opacity=0.8,
             ), row=1, col=1)
 
-    # 【3】使用绝对稳定、兼容所有 Pandas 版本的布尔遮罩来筛选买卖点
+    # 买入卖出标记
     buy_df = plot_df[plot_df.get("买入信号", 0) == 1]
     sell_df = plot_df[plot_df.get("卖出信号", 0) == 1]
 
@@ -462,7 +466,7 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
             mode="markers", marker=dict(symbol="triangle-up", size=10, color="#3fb950"),
             name="买入", showlegend=True,
         ), row=1, col=1)
-        
+
     if not sell_df.empty:
         fig.add_trace(go.Scatter(
             x=sell_df.index, y=sell_df["High"] * 1.015,
@@ -505,12 +509,8 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         ),
     )
     
-    # 【4】Plotly 原生杀手锏：自动隐藏周末的时间轴空缺！
-    fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"])  # 隐藏从周六到周一的区域
-        ]
-    )
+    # 自动隐藏周末的时间轴空缺
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
     fig.update_yaxes(title_text="价格", row=1, col=1, title_font=dict(size=9))
     fig.update_yaxes(title_text="量", row=2, col=1, title_font=dict(size=9))
