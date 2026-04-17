@@ -419,7 +419,7 @@ def col_map_cn_to_en(df: pd.DataFrame) -> pd.DataFrame:
 # 图表构建
 # ══════════════════════════════════════════════════════════════
 
-def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker: str):
+ddef build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker: str):
     """主K线图 + 成交量 + 均线"""
     fig = make_subplots(
         rows=3, cols=1,
@@ -428,14 +428,18 @@ def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker:
         vertical_spacing=0.02,
     )
 
+    # 【核心修复 1】：剔除停牌/缺失数据的脏行，防止 Plotly 渲染崩溃出现满屏色块
+    clean_df = df.dropna(subset=["Open", "High", "Low", "Close"])
+
     # K线
     fig.add_trace(go.Candlestick(
-        x=df.index, open=df["Open"], high=df["High"],
-        low=df["Low"], close=df["Close"],
+        x=clean_df.index, open=clean_df["Open"], high=clean_df["High"],
+        low=clean_df["Low"], close=clean_df["Close"],
         increasing=dict(line=dict(color="#3fb950", width=1), fillcolor="#1f3a2d"),
         decreasing=dict(line=dict(color="#f85149", width=1), fillcolor="#3d1f1f"),
         name="K线", showlegend=False,
     ), row=1, col=1)
+
 
     # 均线
     for col_name, color, width in [("MA5", "#58a6ff", 1), ("MA20", "#d29922", 1.2), ("MA60", "#bc8cff", 1)]:
@@ -900,6 +904,19 @@ if mode == "单股分析":
         vol = realtime.get("成交量")
         amt = realtime.get("成交额_亿")
         company = realtime.get("公司名称", ticker_std)
+        
+        if pd.isna(price) or price is None:
+            if result_df is not None and not result_df.empty:
+                last_row = result_df.iloc[-1]
+                price = last_row.get("Close")
+                prev_close = result_df["Close"].iloc[-2] if len(result_df) > 1 else price
+                change = price - prev_close
+                pct = (change / prev_close) * 100 if prev_close else 0
+                vol = last_row.get("Volume")
+                amt = (vol * price) / 1e8 if vol and price else None
+                realtime["今日开盘"] = last_row.get("Open")
+                realtime["今日最高"] = last_row.get("High")
+                realtime["今日最低"] = last_row.get("Low")
 
         c1, c2, c3, c4, c5, c6 = st.columns([2, 1.2, 1.2, 1.2, 1.2, 1.2])
         with c1:
