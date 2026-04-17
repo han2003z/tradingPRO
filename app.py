@@ -419,7 +419,7 @@ def col_map_cn_to_en(df: pd.DataFrame) -> pd.DataFrame:
 # 图表构建
 # ══════════════════════════════════════════════════════════════
 
-ddef build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker: str):
+def build_candlestick_chart(df: pd.DataFrame, buy_signals, sell_signals, ticker: str):
     """主K线图 + 成交量 + 均线"""
     fig = make_subplots(
         rows=3, cols=1,
