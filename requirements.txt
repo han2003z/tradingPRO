@@ -3,3 +3,4 @@ pandas
 numpy
 plotly==5.20.0
 yfinance
+lightgbm
